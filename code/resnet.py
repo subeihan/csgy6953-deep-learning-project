@@ -1,5 +1,5 @@
 """
-model.py
+resnet.py
 
 ResNet in PyTorch.
 
@@ -15,6 +15,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchsummary
 
+
+__all__ = ['ResNet', 'MyResNet', 'ResNet18', 'ResNet34', 'ResNet50', 'ResNet101', 'ResNet152']
 
 class BasicBlock(nn.Module):
     expansion = 1
