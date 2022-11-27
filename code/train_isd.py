@@ -51,8 +51,8 @@ def parse_option():
 
 
     # model settings
-    parser.add_argument('--arch', type=str, default='myresnet',
-                        choices=['myresnet' , 'resnet18'])
+    parser.add_argument('--arch', type=str, default='MyResNet',
+                        choices=['MyResNet' , 'ResNet18'])
 
     # isd settings
     parser.add_argument('--queue_size', type=int, default=128000)
