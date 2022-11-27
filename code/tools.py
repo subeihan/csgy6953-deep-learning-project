@@ -118,20 +118,6 @@ def accuracy(output, target, topk=(1,)):
         return res
 
 
-arch_to_key = {
-    'alexnet': 'alexnet',
-    'alexnet_moco': 'alexnet',
-    'resnet18': 'resnet18',
-    'resnet50': 'resnet50',
-    'rotnet_r50': 'resnet50',
-    'rotnet_r18': 'resnet18',
-    'resnet18_moco': 'resnet18',
-    'resnet_moco': 'resnet50',
-}
-
-model_names = list(arch_to_key.keys())
-
-
 def remove_dropout(model):
     classif = model.classifier.children()
     classif = [nn.Sequential() if isinstance(m, nn.Dropout) else m for m in classif]
