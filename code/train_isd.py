@@ -62,13 +62,10 @@ def parse_option():
                         choices=['weak/strong', 'weak/weak', 'strong/weak', 'strong/strong'],
                         help='use full or subset of the dataset')
 
-    # GPU setting
-    parser.add_argument('--gpu', default=None, type=int, help='GPU id to use.')
-
     parser.add_argument('--checkpoint_path', default='output/', type=str,
-                        help='where to save checkpoints. ')
+                        help='where to save checkpoints.')
 
-    parser.add_argument('--resume', default='', type=str,
+    parser.add_argument('--resume_path', default='', type=str,
                         help='path to latest checkpoint (default: none)')
 
     opt = parser.parse_args()
@@ -95,18 +92,8 @@ class KLD(nn.Module):
         return F.kl_div(inputs, targets, reduction='batchmean')
 
 
-def get_mlp(inp_dim, hidden_dim, out_dim):
-    mlp = nn.Sequential(
-        nn.Linear(inp_dim, hidden_dim),
-        nn.BatchNorm1d(hidden_dim),
-        nn.ReLU(inplace=True),
-        nn.Linear(hidden_dim, out_dim),
-    )
-    return mlp
-
-
 class ISD(nn.Module):
-    def __init__(self, arch, K=65536, m=0.999, T=0.07):
+    def __init__(self, arch, K=65536, m=0.999, T=0.02):
         super(ISD, self).__init__()
 
         self.K = K
@@ -120,7 +107,7 @@ class ISD(nn.Module):
             self.encoder_k = resnet.__dict__[arch]()
             # save output embedding dimensions
             # assuming that both encoders have same dim
-            feat_dim = self.encoder_q.fc.in_features
+            feat_dim = self.encoder_q.linear.in_features
             out_dim = feat_dim
 
             ##### prediction layer ####
@@ -246,7 +233,6 @@ class TwoCropsTransform:
 
 class GaussianBlur(object):
     """Gaussian blur augmentation in SimCLR https://arxiv.org/abs/2002.05709"""
-
     def __init__(self, sigma=[.1, 2.]):
         self.sigma = sigma
 
@@ -320,7 +306,6 @@ def get_train_loader(opt):
 
 
 def main():
-
     args = parse_option()
     os.makedirs(args.checkpoint_path, exist_ok=True)
 
@@ -333,9 +318,6 @@ def main():
         def print_pass(*args):
             logger.info(*args)
         builtins.print = print_pass
-
-    if args.gpu is not None:
-        print("Use GPU: {} for training".format(args.gpu))
 
     print(args)
 
@@ -358,9 +340,9 @@ def main():
     cudnn.benchmark = True
     args.start_epoch = 1
 
-    if args.resume:
-        print('==> resume from checkpoint: {}'.format(args.resume))
-        ckpt = torch.load(args.resume)
+    if args.resume_path:
+        print('==> resume from checkpoint: {}'.format(args.resume_path))
+        ckpt = torch.load(args.resume_path)
         print('==> resume from epoch: {}'.format(ckpt['epoch']))
         isd.load_state_dict(ckpt['state_dict'], strict=True)
         optimizer.load_state_dict(ckpt['optimizer'])
