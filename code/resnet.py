@@ -78,10 +78,9 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_planes, num_blocks, num_classes=10, with_linear=True):
+    def __init__(self, block, num_planes, num_blocks, num_classes=10):
         super(ResNet, self).__init__()
         self.in_planes = num_planes[0]
-        self.with_linear = with_linear
 
         self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=3,
                                stride=1, padding=1, bias=False)
@@ -109,38 +108,36 @@ class ResNet(nn.Module):
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         # print(out.shape) # 4, 512
-        if self.with_linear:
-            out = self.linear(out)
+        out = self.linear(out)
         return out
 
 
-def MyResNet(block=BasicBlock, num_planes=[64, 128, 256, 512], num_blocks=[2, 1, 1, 1], num_classes=10,
-             with_linear=True):
-    return ResNet(block, num_planes, num_blocks, num_classes, with_linear)
+def MyResNet(block=BasicBlock, num_planes=[64, 128, 256, 512], num_blocks=[2, 1, 1, 1]):
+    return ResNet(block, num_planes, num_blocks)
 
 
-def ResNet18(num_classes=10, with_linear=True):
-    return ResNet(BasicBlock, [64, 128, 256, 512], [2, 2, 2, 2], num_classes, with_linear)
+def ResNet18():
+    return ResNet(BasicBlock, [64, 128, 256, 512], [2, 2, 2, 2])
 
 
-def ResNet34(num_classes=10, with_linear=True):
-    return ResNet(BasicBlock, [64, 128, 256, 512], [3, 4, 6, 3], num_classes, with_linear)
+def ResNet34():
+    return ResNet(BasicBlock, [64, 128, 256, 512], [3, 4, 6, 3])
 
 
-def ResNet50(num_classes=10, with_linear=True):
-    return ResNet(Bottleneck, [64, 128, 256, 512], [3, 4, 6, 3], num_classes, with_linear)
+def ResNet50():
+    return ResNet(Bottleneck, [64, 128, 256, 512], [3, 4, 6, 3])
 
 
-def ResNet101(num_classes=10, with_linear=True):
-    return ResNet(Bottleneck, [64, 128, 256, 512], [3, 4, 23, 3], num_classes, with_linear)
+def ResNet101():
+    return ResNet(Bottleneck, [64, 128, 256, 512], [3, 4, 23, 3])
 
 
-def ResNet152(num_classes=10, with_linear=True):
-    return ResNet(Bottleneck, [64, 128, 256, 512], [3, 8, 36, 3], num_classes, with_linear)
+def ResNet152():
+    return ResNet(Bottleneck, [64, 128, 256, 512], [3, 8, 36, 3])
 
 if __name__ == '__main__':
     # net = ResNet18()
-    # net = MyResNet(BasicBlock, [32, 64, 128, 256], [2, 2, 2, 2], True)
+    # net = MyResNet(BasicBlock, [32, 64, 128, 256], [2, 2, 2, 2])
     net = MyResNet(BasicBlock, [64, 128, 256, 512], [2, 1, 1, 1])
 
     torchsummary.summary(net, (3, 32, 32))
