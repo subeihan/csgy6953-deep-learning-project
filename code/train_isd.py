@@ -95,8 +95,13 @@ class ISD(nn.Module):
         # create encoders and projection layers
         if 'ResNet' in arch:
             # both encoders should have same arch
-            self.encoder_q = resnet.__dict__[arch](with_linear = False)
-            self.encoder_k = resnet.__dict__[arch](with_linear = False)
+            self.encoder_q = resnet.__dict__[arch]()
+            self.encoder_k = resnet.__dict__[arch]()
+            
+            # remove linear layers for encoders
+            self.encoder_k.linear = nn.Sequential()
+            self.encoder_q.linear = nn.Sequential()
+            
             # save output embedding dimensions
             # assuming that both encoders have same dim
             feat_dim = self.encoder_q.linear.in_features
@@ -109,12 +114,7 @@ class ISD(nn.Module):
                 nn.BatchNorm1d(feat_dim),
                 nn.ReLU(inplace=True),
                 nn.Linear(feat_dim, feat_dim, bias=True),
-            )
-
-            ##### projection layers ####
-            # 1. no projection layers for encoders
-            self.encoder_k.fc = nn.Sequential()
-            self.encoder_q.fc = nn.Sequential()
+            )     
         else:
             raise ValueError('arch not found: {}'.format(arch))
 
