@@ -32,7 +32,7 @@ def parse_option():
 
     parser = argparse.ArgumentParser('argument for training')
 
-    parser.add_argument('data_path', type=str, help='path to dataset')
+    parser.add_argument('--data_path', type=str, default='./data', help='path to dataset')
     parser.add_argument('--debug', action='store_true', help='whether in debug mode or not')
 
     parser.add_argument('--print_freq', type=int, default=100, help='print frequency')
@@ -77,14 +77,6 @@ def parse_option():
 
     return opt
 
-
-# Extended version of ImageFolder to return index of image too.
-class ImageFolderEx(datasets.ImageFolder) :
-    def __getitem__(self, index):
-        sample, target = super(ImageFolderEx, self).__getitem__(index)
-        return index, sample, target
-
-
 class KLD(nn.Module):
     def forward(self, inputs, targets):
         inputs = F.log_softmax(inputs, dim=1)
@@ -103,8 +95,8 @@ class ISD(nn.Module):
         # create encoders and projection layers
         if 'ResNet' in arch:
             # both encoders should have same arch
-            self.encoder_q = resnet.__dict__[arch]()
-            self.encoder_k = resnet.__dict__[arch]()
+            self.encoder_q = resnet.__dict__[arch](with_linear = False)
+            self.encoder_k = resnet.__dict__[arch](with_linear = False)
             # save output embedding dimensions
             # assuming that both encoders have same dim
             feat_dim = self.encoder_q.linear.in_features
@@ -244,8 +236,6 @@ class GaussianBlur(object):
 
 # Create train loader
 def get_train_loader(opt):
-    traindir = os.path.join(opt.data_path, 'train')
-
     image_size = 32
     mean = [0.4914, 0.4822, 0.4465]
     std = [0.2023, 0.1994, 0.2010]
@@ -271,24 +261,32 @@ def get_train_loader(opt):
     ])
 
     if opt.augmentation == 'weak/strong':
-        train_dataset = ImageFolderEx(
-            traindir,
-            TwoCropsTransform(k_t=aug_weak, q_t=aug_strong)
+        train_dataset = datasets.CIFAR10(
+            root=opt.data_path,
+            train=True,
+            download=True,
+            transform=TwoCropsTransform(k_t=aug_weak, q_t=aug_strong)
         )
     elif opt.augmentation == 'weak/weak':
-        train_dataset = ImageFolderEx(
-            traindir,
-            TwoCropsTransform(k_t=aug_weak, q_t=aug_weak)
+        train_dataset = datasets.CIFAR10(
+            root=opt.data_path,
+            train=True,
+            download=True,
+            transform=TwoCropsTransform(k_t=aug_weak, q_t=aug_weak)
         )
     elif opt.augmentation == 'strong/weak':
-        train_dataset = ImageFolderEx(
-            traindir,
-            TwoCropsTransform(k_t=aug_strong, q_t=aug_weak)
+        train_dataset = datasets.CIFAR10(
+            root=opt.data_path,
+            train=True,
+            download=True,
+            transform=TwoCropsTransform(k_t=aug_strong, q_t=aug_weak)
         )
     else: # strong/strong
-        train_dataset = ImageFolderEx(
-            traindir,
-            TwoCropsTransform(k_t=aug_strong, q_t=aug_strong)
+        train_dataset = datasets.CIFAR10(
+            root=opt.data_path,
+            train=True,
+            download=True,
+            transform=TwoCropsTransform(k_t=aug_strong, q_t=aug_strong)
         )
 
     print('==> train dataset')
@@ -390,7 +388,7 @@ def train_student(epoch, train_loader, isd, criterion, optimizer, opt):
     loss_meter = AverageMeter()
 
     end = time.time()
-    for idx, (indices, (im_q, im_k), _) in enumerate(train_loader):
+    for idx, ((im_q, im_k), _) in enumerate(train_loader):
         data_time.update(time.time() - end)
         im_q = im_q.cuda(non_blocking=True)
         im_k = im_k.cuda(non_blocking=True)
