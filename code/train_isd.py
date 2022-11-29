@@ -97,18 +97,18 @@ class ISD(nn.Module):
             # both encoders should have same arch
             self.encoder_q = resnet.__dict__[arch]()
             self.encoder_k = resnet.__dict__[arch]()
-            
-            # remove linear layers for encoders
-            self.encoder_k.linear = nn.Sequential()
-            self.encoder_q.linear = nn.Sequential()
-            
+
             # save output embedding dimensions
             # assuming that both encoders have same dim
             feat_dim = self.encoder_q.linear.in_features
             out_dim = feat_dim
 
             ##### prediction layer ####
-            # 1. have a prediction layer for q with BN
+            # remove linear layers for encoders
+            self.encoder_k.linear = nn.Sequential()
+            self.encoder_q.linear = nn.Sequential()
+
+            # add a prediction layer for q with BN
             self.predict_q = nn.Sequential(
                 nn.Linear(feat_dim, feat_dim, bias=False),
                 nn.BatchNorm1d(feat_dim),
