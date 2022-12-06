@@ -13,6 +13,8 @@ import math
 import torch
 import numpy as np
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 # NOTE: assumes that the epoch starts with 1
 def adjust_learning_rate(epoch, opt, optimizer):
@@ -69,6 +71,21 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
+class TwoCropsTransform:
+    def __init__(self, k_t, q_t):
+        self.q_t = q_t
+        self.k_t = k_t
+        print('======= Query transform =======')
+        print(self.q_t)
+        print('===============================')
+        print('======== Key transform ========')
+        print(self.k_t)
+        print('===============================')
+
+    def __call__(self, x):
+        q = self.q_t(x)
+        k = self.k_t(x)
+        return [q, k]
 
 if __name__ == '__main__':
     meter = AverageMeter()

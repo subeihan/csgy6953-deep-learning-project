@@ -18,7 +18,7 @@ import torchvision.models as models
 import torch.nn.functional as F
 
 from tools import *
-
+from utils import *
 
 parser = argparse.ArgumentParser(description='Unsupervised distillation')
 parser.add_argument('--data_path', default='./data', type=str, metavar='DIR', help='path to dataset')
