@@ -24,7 +24,7 @@ from PIL import ImageFilter
 import numpy as np
 
 from utils import adjust_learning_rate, AverageMeter
-import resnet
+import model
 from tools import get_logger
 
 
@@ -93,30 +93,27 @@ class ISD(nn.Module):
         self.T = T
 
         # create encoders and projection layers
-        if 'ResNet' in arch:
-            # both encoders should have same arch
-            self.encoder_q = resnet.__dict__[arch]()
-            self.encoder_k = resnet.__dict__[arch]()
+        # both encoders should have same arch
+        self.encoder_q = model.__dict__[arch]()
+        self.encoder_k = model.__dict__[arch]()
 
-            # save output embedding dimensions
-            # assuming that both encoders have same dim
-            feat_dim = self.encoder_q.linear.in_features
-            out_dim = feat_dim
+        # save output embedding dimensions
+        # assuming that both encoders have same dim
+        feat_dim = self.encoder_q.feat_size
+        out_dim = feat_dim
 
-            ##### prediction layer ####
-            # remove linear layers for encoders
-            self.encoder_k.linear = nn.Sequential()
-            self.encoder_q.linear = nn.Sequential()
+        ##### prediction layer ####
+        # remove linear layers for encoders
+        self.encoder_k.linear = nn.Sequential()
+        self.encoder_q.linear = nn.Sequential()
 
-            # add a prediction layer for q with BN
-            self.predict_q = nn.Sequential(
-                nn.Linear(feat_dim, feat_dim, bias=False),
-                nn.BatchNorm1d(feat_dim),
-                nn.ReLU(inplace=True),
-                nn.Linear(feat_dim, feat_dim, bias=True),
-            )     
-        else:
-            raise ValueError('arch not found: {}'.format(arch))
+        # add a prediction layer for q with BN
+        self.predict_q = nn.Sequential(
+            nn.Linear(feat_dim, feat_dim, bias=False),
+            nn.BatchNorm1d(feat_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(feat_dim, feat_dim, bias=True),
+        )
 
         # copy query encoder weights to key encoder
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
@@ -161,7 +158,7 @@ class ISD(nn.Module):
 
     def forward(self, im_q, im_k):
         # compute query features
-        feat_q = self.encoder_q(im_q)
+        _, feat_q = self.encoder_q(im_q)
         # compute prediction queries
         q = self.predict_q(feat_q)
         q = nn.functional.normalize(q, dim=1)
@@ -176,7 +173,7 @@ class ISD(nn.Module):
             im_k = im_k[shuffle_ids]
 
             # forward through the key encoder
-            k = self.encoder_k(im_k)
+            _, k = self.encoder_k(im_k)
             k = nn.functional.normalize(k, dim=1)
 
             # undo shuffle
@@ -306,6 +303,7 @@ def get_train_loader(opt):
 def main():
     args = parse_option()
     os.makedirs(args.checkpoint_path, exist_ok=True)
+
 
     if not args.debug:
         os.environ['PYTHONBREAKPOINT'] = '0'
