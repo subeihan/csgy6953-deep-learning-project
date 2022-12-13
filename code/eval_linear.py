@@ -17,6 +17,7 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import torch.nn.functional as F
 
+import model
 from tools import *
 from utils import *
 
@@ -25,7 +26,7 @@ parser.add_argument('--data_path', default='./data', type=str, metavar='DIR', he
 parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
                     help='number of data loading workers (default: 2)')
 parser.add_argument('-a', '--arch', default='MyResNet',
-                    help='model architecture: | [MyResNet, ResNet18] (default: ResNet18)')
+                    help='model architecture: | [MyResNet, ResNet18] (default: MyResNet)')
 parser.add_argument('--epochs', default=50, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
@@ -50,13 +51,15 @@ parser.add_argument('--save_path', default='./output/eval_linear', type=str,
                     help='output directory')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
-parser.add_argument('--weights', dest='weights', type=str, required=True,
+parser.add_argument('--weights_path', dest='weights_path', type=str, required=True,
                     help='pre-trained model weights')
 parser.add_argument('--lr_schedule', type=str, default='15,30,40',
                     help='lr drop schedule')
 
 best_acc1 = 0
 
+# set device
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def main():
     global logger
@@ -66,66 +69,60 @@ def main():
     logger = get_logger(logpath=os.path.join(args.save_path, 'logs'), filepath=os.path.abspath(__file__))
     logger.info(args)
 
-    if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        cudnn.deterministic = True
-        warnings.warn('You have chosen to seed training. '
-                      'This will turn on the CUDNN deterministic setting, '
-                      'which can slow down your training considerably! '
-                      'You may see unexpected behavior when restarting '
-                      'from checkpoints.')
-
     main_worker(args)
 
 import pdb
 
 
-def load_weights(model, wts_path):
+def load_weights(backbone, wts_path):
     wts = torch.load(wts_path)
-    # pdb.set_trace()
-    if 'state_dict' in wts:
-        ckpt = wts['state_dict']
-    elif 'model' in wts:
-        ckpt = wts['model']
-    else:
-        ckpt = wts
 
+    ckpt = wts['state_dict']
     ckpt = {k.replace('module.', ''): v for k, v in ckpt.items()}
     state_dict = {}
 
-    for m_key, m_val in model.state_dict().items():
+    for m_key, m_val in backbone.state_dict().items():
         if m_key in ckpt:
             state_dict[m_key] = ckpt[m_key]
         else:
             state_dict[m_key] = m_val
             print('not copied => ' + m_key)
 
-    model.load_state_dict(state_dict)
-    print(model)
+    backbone.load_state_dict(state_dict)
+    print(backbone)
 
 
-def get_model(arch, wts_path):
-    if 'ResNet' in arch:
-        model = resnet.__dict__[arch]()
-        model.fc = nn.Sequential()
-        load_weights(model, wts_path)
-    else:
-        raise ValueError('arch not found: ' + arch)
+def get_backbone(arch, wts_path):
+    backbone = model.__dict__[arch]()
+    backbone.linear = nn.Sequential()
+    load_weights(backbone, wts_path)
 
-    for p in model.parameters():
+    for p in backbone.parameters():
         p.requires_grad = False
 
-    return model
+    return backbone
 
 
 def get_dataloaders(args):
+    # seed torch, np and random
+    torch.cuda.empty_cache()
+    torch.cuda.manual_seed(args.seed)
+    torch.manual_seed(args.seed)
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2 ** 32
+        np.random.seed(worker_seed)
+        np.random.RandomState(worker_seed)
+        random.seed(worker_seed)
+
+
     # perform data transformation on train_set and val_set
-    normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
-                                     std=[0.2023, 0.1994, 0.2010])
+    image_size = 32
+    mean = [0.4914, 0.4822, 0.4465]
+    std = [0.2023, 0.1994, 0.2010]
+    normalize = transforms.Normalize(mean=mean, std=std)
 
     train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(32),
+        transforms.RandomResizedCrop(image_size),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         normalize,
@@ -197,16 +194,16 @@ def main_worker(args):
     train_loader, val_loader, test_loader = get_dataloaders(args)
 
     # get pretained backbone
-    backbone = get_model(args.arch, args.weights)
-    backbone = nn.DataParallel(backbone).cuda()
+    backbone = get_backbone(args.arch, args.weights_path)
+    backbone = nn.DataParallel(backbone).to(DEVICE)
     backbone.eval()
 
     # linear head module
     linear = nn.Sequential(
-        nn.BatchNorm2d(512),
+        #nn.BatchNorm1d(512),
         nn.Linear(512, 10)
     )
-    linear = linear.cuda()
+    linear = linear.to(DEVICE)
 
     optimizer = optim.Adam(linear.parameters(),
                            lr=args.lr,
@@ -270,11 +267,11 @@ def main_worker(args):
 
 
 def train(train_loader, backbone, linear, optimizer, epoch, args):
-    batch_time = AverageMeter('Time', ':6.3f')
-    data_time = AverageMeter('Data', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
+    batch_time = AverageMeter()
+    data_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
+    top5 = AverageMeter()
     progress = ProgressMeter(
         len(train_loader),
         [batch_time, data_time, losses, top1, top5],
@@ -289,12 +286,12 @@ def train(train_loader, backbone, linear, optimizer, epoch, args):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        images = images.cuda(non_blocking=True)
-        target = target.cuda(non_blocking=True)
+        images = images.to(DEVICE)
+        target = target.to(DEVICE)
 
         # compute output
         with torch.no_grad():
-            output = backbone(images)
+            output, _ = backbone(images)
         output = linear(output)
         loss = F.cross_entropy(output, target)
 
@@ -318,10 +315,10 @@ def train(train_loader, backbone, linear, optimizer, epoch, args):
 
 
 def validate(val_loader, backbone, linear, args):
-    batch_time = AverageMeter('Time', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
+    top5 = AverageMeter()
     progress = ProgressMeter(
         len(val_loader),
         [batch_time, losses, top1, top5],
@@ -333,8 +330,8 @@ def validate(val_loader, backbone, linear, args):
     with torch.no_grad():
         end = time.time()
         for i, (images, target) in enumerate(val_loader):
-            images = images.cuda(non_blocking=True)
-            target = target.cuda(non_blocking=True)
+            images = images.to(DEVICE)
+            target = target.to(DEVICE)
 
             # compute output
             output = backbone(images)
