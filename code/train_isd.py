@@ -281,7 +281,7 @@ def train(args, train_loader, isd, criterion, optimizer):
             del state
             torch.cuda.empty_cache()
 
-        print(f'epoch: {ep + 1:03}')
+        print(f'epoch: {ep:03}')
         print(f'\ttrain Loss: {per_train_loss:.3f}')
 
     print('training finished')
