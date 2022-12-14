@@ -1,81 +1,65 @@
-import argparse
-import os
-import random
-import shutil
-import time
-import warnings
+"""
+eval.linear.py
+
+seperate linear layer training procedure for CIFAR-10 and evaluation
+
+Reference:
+[1] https://github.com/kuangliu/pytorch-cifar/blob/master/models/resnet.py
+"""
 
 import torch
 import torch.nn as nn
-import torch.nn.parallel
-import torch.backends.cudnn as cudnn
 import torch.optim as optim
-import torch.utils.data
-from torch.utils.data import DataLoader, sampler
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torchvision.models as models
 import torch.nn.functional as F
+import torch.backends.cudnn as cudnn
+import random
+import numpy as np
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data import sampler
+from tensorboardX import SummaryWriter
 
-import model
+import os
+import argparse
+from tqdm import tqdm
+
+from model import *
 from tools import *
 from utils import *
 
 parser = argparse.ArgumentParser(description='Unsupervised distillation')
-parser.add_argument('--data_path', default='./data', type=str, metavar='DIR', help='path to dataset')
-parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
-                    help='number of data loading workers (default: 2)')
-parser.add_argument('-a', '--arch', default='MyResNet',
-                    help='model architecture: | [MyResNet, ResNet18] (default: MyResNet)')
-parser.add_argument('--epochs', default=50, type=int, metavar='N',
-                    help='number of total epochs to run')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
-                    help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
-                    metavar='N',
-                    help='mini-batch size (default: 256), this is the total '
-                         'batch size of all GPUs on the current node when '
-                         'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
-                    metavar='LR', help='initial learning rate', dest='lr')
-parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
-                    metavar='W', help='weight decay (default: 1e-4)',
-                    dest='weight_decay')
-parser.add_argument('-p', '--print-freq', default=90, type=int,
-                    metavar='N', help='print frequency (default: 10)')
-parser.add_argument('--resume_path', default='', type=str, metavar='PATH',
-                    help='path to latest checkpoint (default: none)')
-parser.add_argument('--seed', default=3407, type=int,
-                    help='seed for initializing training. ')
-parser.add_argument('--save_path', default='./output/eval_linear', type=str,
-                    help='output directory')
-parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
-                    help='evaluate model on validation set')
-parser.add_argument('--weights_path', dest='weights_path', type=str, required=True,
-                    help='pre-trained model weights')
-parser.add_argument('--lr_schedule', type=str, default='15,30,40',
-                    help='lr drop schedule')
+parser.add_argument('--seed', type=int, default=3407,
+                    help='seed for torch')
+parser.add_argument('--root_path', type=str, default='./data',
+                    help='data path')
+parser.add_argument('--save_path', type=str, default='./model',
+                    help='save_path')
+parser.add_argument('--save_every_e', type=int, default=10,
+                    help='save model per save_every_e epoch')
+parser.add_argument('--batch_size', type=int, default=128,
+                    help='batch_size per gpu')
+parser.add_argument('--max_epoch', type=int, default=100,
+                    help='maximum epoch number to train')
+parser.add_argument('--arc_opt', type=int, default=2,
+                    help='2: num_planes=[64,128,256,512], num_blocks=[2,1,1,1];\
+                    1: num_planes=[32,64,128,256], num_blocks=[2,2,2,2]')
+parser.add_argument('--learning_rate', type=float, default=0.01,
+                    help='maximum epoch number to train')
+parser.add_argument('--l2_reg', default=False, action='store_true')
+parser.add_argument('--no-l2_reg', dest='l2_reg', action='store_false')
+parser.add_argument('--adjust_lr', default=False, action='store_true')
+parser.add_argument('--no-adjust_lr', dest='adjust_lr', action='store_false')
+parser.add_argument('--backbone_path', dest='backbone_path', type=str, required=True,
+                    help='pre-trained backbone')
 
-best_acc1 = 0
+# we divide the overall train_set into train and val parts, with 80%:20% ratio
+NUM_TRAIN = 40000
 
 # set device
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def main():
-    global logger
-
-    args = parser.parse_args()
-    makedirs(args.save_path)
-    logger = get_logger(logpath=os.path.join(args.save_path, 'logs'), filepath=os.path.abspath(__file__))
-    logger.info(args)
-
-    main_worker(args)
-
-import pdb
-
-
-def load_weights(backbone, wts_path):
-    wts = torch.load(wts_path)
+def load_weights(backbone, backbone_path):
+    wts = torch.load(backbone_path)
 
     ckpt = wts['state_dict']
     ckpt = {k.replace('module.', ''): v for k, v in ckpt.items()}
@@ -92,10 +76,19 @@ def load_weights(backbone, wts_path):
     print(backbone)
 
 
-def get_backbone(arch, wts_path):
-    backbone = model.__dict__[arch]()
+def get_backbone(arc_opt, backbone_path):
+    backbone = MyResNet()
+    if arc_opt == 1:
+        backbone = MyResNet(block=BasicBlock,
+                            num_planes=[32, 64, 128, 256],
+                            num_blocks=[2, 2, 2, 2])
+    else:
+        backbone = MyResNet(block=BasicBlock,
+                            num_planes=[64, 128, 256, 512],
+                            num_blocks=[2, 1, 1, 1])
     backbone.linear = nn.Sequential()
-    load_weights(backbone, wts_path)
+
+    load_weights(backbone, backbone_path)
 
     for p in backbone.parameters():
         p.requires_grad = False
@@ -103,7 +96,7 @@ def get_backbone(arch, wts_path):
     return backbone
 
 
-def get_dataloaders(args):
+def prepare_dataloaders(args):
     # seed torch, np and random
     torch.cuda.empty_cache()
     torch.cuda.manual_seed(args.seed)
@@ -133,52 +126,49 @@ def get_dataloaders(args):
         normalize,
     ])
 
-    # divide the overall train_set into train and val parts, with 80%:20% ratio
-    num_train = 40000
-
     # prepare train dataset and dataloader
-    train_dataset = datasets.CIFAR10(
-        root=args.data_path,
+    train_dataset = torchvision.datasets.CIFAR10(
+        root=args.root_path,
         train=True,
         download=True,
         transform=train_transform
     )
 
-    train_loader = DataLoader(
+    train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=args.batch_size,
-        num_workers=args.workers,
-        sampler=sampler.SubsetRandomSampler(range(num_train)),
+        num_workers=2,
+        sampler=sampler.SubsetRandomSampler(range(NUM_TRAIN)),
         worker_init_fn=seed_worker,
-        pin_memory=True,
+        drop_last=True,
     )
 
     # prepare validation dataset and dataloader
-    val_dataset = datasets.CIFAR10(
-        root=args.data_path,
+    val_dataset = torchvision.datasets.CIFAR10(
+        root=args.root_path,
         train=True,
         download=True,
         transform=test_transform
     )
 
-    val_loader = DataLoader(
+    val_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=100,
         shuffle=False,
-        num_workers=args.workers,
-        sampler=sampler.SubsetRandomSampler(range(num_train, 50000)),
-        pin_memory=True,
+        num_workers=2,
+        sampler=sampler.SubsetRandomSampler(range(NUM_TRAIN, 50000)),
+        worker_init_fn=seed_worker
     )
 
     # prepare test dataset and dataloader
-    test_dataset = datasets.CIFAR10(
-        root=args.data_path,
+    test_dataset = torchvision.datasets.CIFAR10(
+        root=args.root_path,
         train=False,
         download=True,
         transform=test_transform
     )
 
-    test_loader = DataLoader(
+    test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=100,
         shuffle=False,
@@ -187,174 +177,156 @@ def get_dataloaders(args):
 
     return train_loader, val_loader, test_loader
 
-def main_worker(args):
-    global best_acc
+
+def train(args, backbone, linear, train_loader, val_loader, optimizer, criterion):
+    # visualization tool
+    writer = SummaryWriter(args.save_path + '/log')
+
+    max_iterations = args.max_epoch * len(train_loader)
+    iteration = 0
+
+    # record the best(lowest) loss
+    cur_best_loss = 10000
+
+    # put backbone in evaluation mode
+    backbone.eval()
+
+
+    for ep in tqdm(range(1, args.max_epoch + 1)):
+        # training session
+        linear.train()
+        total_train_loss = 0.0
+        total_train_acc = 0.0
+
+        for i, data in tqdm((enumerate(train_loader))):
+            inputs, labels = data
+            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+            optimizer.zero_grad()
+
+            # compute output
+            with torch.no_grad():
+                _, outputs = backbone(inputs)
+            outputs = linear(outputs)
+
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            acc = accuracy(outputs, labels)
+            total_train_loss += loss.item()
+            total_train_acc += acc
+
+            # adjust learning rate (cosine scheduler) if asjust_lr set to be True
+            lr_ = args.learning_rate
+            if args.adjust_lr:
+                lr_ = args.learning_rate * (1.0 - iteration / max_iterations) ** 0.9
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = lr_
+
+            writer.add_scalar('info/lr', lr_, iteration)
+            writer.add_scalar('info/train_loss', loss, iteration)
+            writer.add_scalar('info/train_acc', accuracy(outputs, labels), iteration)
+
+            iteration += 1
+
+        per_train_loss = total_train_loss / len(train_loader)
+        per_train_acc = total_train_acc / len(train_loader)
+
+
+        # validation session
+        with torch.no_grad():
+            linear.eval()
+            total_val_loss = 0.0
+            total_val_acc = 0.0
+            for data in tqdm(val_loader):
+                inputs, labels = data
+                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+
+                _, outputs = backbone(inputs)
+                outputs = linear(outputs)
+
+                loss = criterion(outputs, labels)
+                acc = accuracy(outputs, labels)
+                total_val_loss += loss.item()
+                total_val_acc += acc
+
+            per_val_loss = total_val_loss / len(val_loader)
+            per_val_acc = total_val_acc / len(val_loader)
+
+            writer.add_scalar('info/val_loss', per_val_loss, ep)
+            writer.add_scalar('info/val_acc', per_val_acc, ep)
+
+            if per_val_loss <= cur_best_loss:
+                cur_best_loss = per_val_loss
+                torch.save(linear.state_dict(), os.path.join(args.save_path, 'best_linear_head.pth'))
+
+        if ((ep + 1) % args.save_every_e == 0):
+            torch.save(linear.state_dict(), os.path.join(args.save_path, f'iter_{ep}.pth'))
+
+        print(f'epoch: {ep + 1:03}')
+        print(f'\ttrain Loss: {per_train_loss:.3f} | train Acc: {per_train_acc * 100:.2f}%')
+        print(f'\t val. Loss: {per_val_loss:.3f} |  val. Acc: {per_val_acc * 100:.2f}%')
+
+    print('training finished')
+    writer.close()
+
+def test(backbone, linear, test_loader, criterion):
+    backbone.eval()
+    linear.eval()
+
+    total_loss = 0.0
+    total_acc = 0.0
+    for data in tqdm(test_loader):
+        inputs, labels = data
+        inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+
+        _, outputs = backbone(inputs)
+        outputs = linear(outputs)
+
+        loss = criterion(outputs, labels)
+        acc = accuracy(outputs, labels)
+        total_loss += loss.item()
+        total_acc += acc
+
+    final_loss = total_loss / len(test_loader)
+    final_acc = total_acc / len(test_loader)
+    print(f'final loss on test set is {final_loss:.3f}')
+    print(f'final acc on test set is {final_acc:.3f}\n')
+
+
+def main():
+    args = parser.parse_args()
 
     # get dataloaders
-    train_loader, val_loader, test_loader = get_dataloaders(args)
+    train_loader, val_loader, test_loader = prepare_dataloaders(args)
 
     # get pretained backbone
-    backbone = get_backbone(args.arch, args.weights_path)
+    backbone = get_backbone(args.arc_opt, args.backbone_path)
     backbone = nn.DataParallel(backbone).to(DEVICE)
     backbone.eval()
 
     # linear head module
-    linear = nn.Sequential(
-        #nn.BatchNorm1d(512),
-        nn.Linear(512, 10)
-    )
+    in_planes = 256 if args.arc_opt == 1 else 512
+    linear = nn.Linear(in_planes, 10)
     linear = linear.to(DEVICE)
 
+    # initialize the loss criterion and optimizer for linear head
+    criterion = nn.CrossEntropyLoss()
+    weight_decay = 1e-6 if args.l2_reg else 0
     optimizer = optim.Adam(linear.parameters(),
-                           lr=args.lr,
+                           lr=args.learning_rate,
                            betas=(0.9, 0.999),
                            eps=1e-08,
-                           weight_decay=args.weight_decay)
+                           weight_decay=weight_decay)
 
+    # train linear head
+    train(args, backbone, linear, train_loader, val_loader, optimizer, criterion)
 
-    schedule = [int(x) for x in args.lr_schedule.split(',')]
-    lr_scheduler = optim.lr_scheduler.MultiStepLR(
-        optimizer, milestones=schedule
-    )
+    #  load trained best linear head and test
+    linear.load_state_dict(torch.load(os.path.join(args.save_path, 'best_linear_head.pth')))
+    linear = linear.to(DEVICE)
+    test(backbone, linear, test_loader, criterion)
 
-    # optionally resume from a checkpoint
-    if args.resume_path:
-        if os.path.isfile(args.resum_path):
-            logger.info("=> loading checkpoint '{}'".format(args.resume_path))
-            checkpoint = torch.load(args.resume_path)
-            args.start_epoch = checkpoint['epoch']
-            linear.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-            logger.info("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resum_path, checkpoint['epoch']))
-        else:
-            logger.info("=> no checkpoint found at '{}'".format(args.resume_path))
-
-    cudnn.benchmark = True
-
-    # evaluate on test set if run in evaluation mode
-    if args.evaluate:
-        validate(test_loader, backbone, linear, args)
-        return
-
-    # train
-    for epoch in range(args.start_epoch, args.epochs):
-        # train for one epoch
-        train(train_loader, backbone, linear, optimizer, epoch, args)
-
-        # evaluate on validation set
-        val_acc = validate(val_loader, backbone, linear, args)
-
-        # modify lr
-        lr_scheduler.step()
-
-        # remember best acc and save checkpoint
-        is_best = val_acc > best_acc
-        best_acc = max(val_acc, best_acc)
-
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'state_dict': linear.state_dict(),
-            'best_acc1': best_acc,
-            'optimizer': optimizer.state_dict(),
-            'lr_scheduler': lr_scheduler.state_dict(),
-        }, is_best, args.save_path)
-
-    # test
-    validate(test_loader, backbone, linear, args)
-
-
-
-def train(train_loader, backbone, linear, optimizer, epoch, args):
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
-    losses = AverageMeter()
-    top1 = AverageMeter()
-    top5 = AverageMeter()
-    progress = ProgressMeter(
-        len(train_loader),
-        [batch_time, data_time, losses, top1, top5],
-        prefix="Epoch: [{}]".format(epoch))
-
-    # switch to train mode
-    backbone.eval()
-    linear.train()
-
-    end = time.time()
-    for i, (images, target) in enumerate(train_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-
-        images = images.to(DEVICE)
-        target = target.to(DEVICE)
-
-        # compute output
-        with torch.no_grad():
-            output, _ = backbone(images)
-        output = linear(output)
-        loss = F.cross_entropy(output, target)
-
-        # measure accuracy and record loss
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        losses.update(loss.item(), images.size(0))
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
-
-        # compute gradient and do ADAM step
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        if i % args.print_freq == 0:
-            logger.info(progress.display(i))
-
-
-def validate(val_loader, backbone, linear, args):
-    batch_time = AverageMeter()
-    losses = AverageMeter()
-    top1 = AverageMeter()
-    top5 = AverageMeter()
-    progress = ProgressMeter(
-        len(val_loader),
-        [batch_time, losses, top1, top5],
-        prefix='Test: ')
-
-    backbone.eval()
-    linear.eval()
-
-    with torch.no_grad():
-        end = time.time()
-        for i, (images, target) in enumerate(val_loader):
-            images = images.to(DEVICE)
-            target = target.to(DEVICE)
-
-            # compute output
-            output = backbone(images)
-            output = linear(output)
-            loss = F.cross_entropy(output, target)
-
-            # measure accuracy and record loss
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
-            losses.update(loss.item(), images.size(0))
-            top1.update(acc1[0], images.size(0))
-            top5.update(acc5[0], images.size(0))
-
-            # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
-
-            if i % args.print_freq == 0:
-                logger.info(progress.display(i))
-
-        logger.info(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
-              .format(top1=top1, top5=top5))
-
-    return top1.avg
 
 if __name__ == '__main__':
     main()
