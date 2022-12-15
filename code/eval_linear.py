@@ -24,7 +24,6 @@ import argparse
 from tqdm import tqdm
 
 from model import *
-from tools import *
 from utils import *
 
 parser = argparse.ArgumentParser(description='Unsupervised distillation')
