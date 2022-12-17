@@ -47,7 +47,7 @@ def parse_option():
                         help='save model per save_every_e epoch')
     parser.add_argument('--batch_size', type=int, default=128,
                         help='batch_size per gpu')
-    parser.add_argument('--max_epoch', type=int, default=150,
+    parser.add_argument('--max_epoch', type=int, default=100,
                         help='maximum epoch number to train')
     parser.add_argument('--arc_opt', type=int, default=2,
                         help='2: num_planes=[64,128,256,512], num_blocks=[2,1,1,1];\

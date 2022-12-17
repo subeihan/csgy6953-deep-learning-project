@@ -50,6 +50,8 @@ parser.add_argument('--adjust_lr', default=True, action='store_true')
 parser.add_argument('--no-adjust_lr', dest='adjust_lr', action='store_false')
 parser.add_argument('--backbone_path', dest='backbone_path', type=str, required=True,
                     help='pre-trained backbone')
+parser.add_argument('--freeze_backbone', default=True, action='store_true')
+parser.add_argument('--unfreeze_backbone', dest='freeze_backbone', action='store_false')
 
 # we divide the overall train_set into train and val parts, with 80%:20% ratio
 NUM_TRAIN = 40000
@@ -61,7 +63,9 @@ def load_weights(backbone, backbone_path):
     wts = torch.load(backbone_path)
 
     ckpt = wts['state_dict']
-    ckpt = {k.replace('module.', ''): v for k, v in ckpt.items()}
+    for k, v in ckpt.items():
+        print(f'k {k}, v {v}')
+    ckpt = {k.replace('encoder_q.', ''): v for k, v in ckpt.items()}
     state_dict = {}
 
     for m_key, m_val in backbone.state_dict().items():
@@ -187,12 +191,16 @@ def train(args, backbone, linear, train_loader, val_loader, optimizer, criterion
     # record the best(lowest) loss
     cur_best_loss = 10000
 
-    # put backbone in evaluation mode
-    backbone.eval()
 
 
     for ep in tqdm(range(1, args.max_epoch + 1)):
         # training session
+        # put backbone in evaluation mode if freeze_backbone
+        if args.freeze_backbone:
+            backbone.eval()
+        else:
+            backbone.train()
+
         linear.train()
         total_train_loss = 0.0
         total_train_acc = 0.0
@@ -203,7 +211,10 @@ def train(args, backbone, linear, train_loader, val_loader, optimizer, criterion
             optimizer.zero_grad()
 
             # compute output
-            with torch.no_grad():
+            if args.freeze_backbone:
+                with torch.no_grad():
+                    _, outputs = backbone(inputs)
+            else:
                 _, outputs = backbone(inputs)
             outputs = linear(outputs)
 
@@ -235,6 +246,7 @@ def train(args, backbone, linear, train_loader, val_loader, optimizer, criterion
         # validation session
         with torch.no_grad():
             linear.eval()
+            backbone.eval()
             total_val_loss = 0.0
             total_val_acc = 0.0
             for data in tqdm(val_loader):
