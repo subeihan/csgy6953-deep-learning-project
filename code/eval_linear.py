@@ -46,7 +46,7 @@ parser.add_argument('--learning_rate', type=float, default=0.01,
                     help='maximum epoch number to train')
 parser.add_argument('--l2_reg', default=False, action='store_true')
 parser.add_argument('--no-l2_reg', dest='l2_reg', action='store_false')
-parser.add_argument('--adjust_lr', default=False, action='store_true')
+parser.add_argument('--adjust_lr', default=True, action='store_true')
 parser.add_argument('--no-adjust_lr', dest='adjust_lr', action='store_false')
 parser.add_argument('--backbone_path', dest='backbone_path', type=str, required=True,
                     help='pre-trained backbone')

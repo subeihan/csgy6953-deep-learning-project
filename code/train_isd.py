@@ -47,15 +47,18 @@ def parse_option():
                         help='save model per save_every_e epoch')
     parser.add_argument('--batch_size', type=int, default=128,
                         help='batch_size per gpu')
-    parser.add_argument('--max_epoch', type=int, default=200,
+    parser.add_argument('--max_epoch', type=int, default=150,
                         help='maximum epoch number to train')
     parser.add_argument('--arc_opt', type=int, default=2,
                         help='2: num_planes=[64,128,256,512], num_blocks=[2,1,1,1];\
                         1: num_planes=[32,64,128,256], num_blocks=[2,2,2,2]')
     parser.add_argument('--learning_rate', type=float, default=0.01,
                         help='initial learning rate')
+
     parser.add_argument('--l2_reg', default=False, action='store_true')
     parser.add_argument('--no-l2_reg', dest='l2_reg', action='store_false')
+    parser.add_argument('--cos_lr', default=False, action='store_true',
+                        help='whether to cosine learning rate or not')
     parser.add_argument('--adjust_lr', default=False, action='store_true')
     parser.add_argument('--no-adjust_lr', dest='adjust_lr', action='store_false')
 
@@ -234,10 +237,14 @@ def train(args, train_loader, isd, criterion, optimizer):
 
             ## adjust learning rate (cosine scheduler) if asjust_lr set to be True
             lr_ = args.learning_rate
-            if args.adjust_lr:
-                lr_ = args.learning_rate * (1.0 - iteration / max_iterations) ** 0.9
+            if args.adjust_lr or args.cos_lr:
+                if args.adjust_lr:
+                    lr_ = args.learning_rate * (1.0 - iteration / max_iterations) ** 0.9
+                else:
+                    lr_ = args.learning_rate * 0.5 * (1. + math.cos(math.pi * (ep - 1) / args.max_epoch))
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lr_
+
 
             writer.add_scalar('info/lr', lr_, iteration)
             writer.add_scalar('info/isd_train_loss', loss, iteration)
