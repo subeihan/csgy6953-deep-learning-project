@@ -63,8 +63,6 @@ def load_weights(backbone, backbone_path):
     wts = torch.load(backbone_path)
 
     ckpt = wts['state_dict']
-    for k, v in ckpt.items():
-        print(f'k {k}, v {v}')
     ckpt = {k.replace('encoder_q.', ''): v for k, v in ckpt.items()}
     state_dict = {}
 
