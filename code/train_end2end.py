@@ -46,7 +46,7 @@ parser.add_argument('--arc_opt', type=int, default=2,
                     help='2: num_planes=[64,128,256,512], num_blocks=[2,1,1,1];\
                     1: num_planes=[32,64,128,256], num_blocks=[2,2,2,2]')
 parser.add_argument('--learning_rate', type=float, default=0.01,
-                    help='maximum epoch number to train')
+                    help='learning rate')
 parser.add_argument('--l2_reg', default=False, action='store_true')
 parser.add_argument('--no-l2_reg', dest='l2_reg', action='store_false')
 parser.add_argument('--adjust_lr', default=False, action='store_true')
@@ -134,7 +134,7 @@ def prepare_dataloaders():
 
     transform_test = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        normalize,
     ])
 
     ## achieves data from torchvision, divide train into train-valid
@@ -219,7 +219,7 @@ def prepare_dataloaders():
 
 def train(model, train_loader, val_loader, optimizer, criterion):
     ## self-supervised loss: kld
-    kld = KLD().cuda()
+    kld = KLD().to(DEVICE)
     ## create strong transform for teacher
     # transform_strong = transforms.Compose([
     #     transforms.RandomApply([
@@ -336,7 +336,7 @@ def test(model, test_loader, criterion):
     for data in tqdm(test_loader):
         inputs, labels = data
         inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
-        outputs = model(inputs)
+        outputs, _ = model(inputs)
         loss = criterion(outputs, labels)
         acc = accuracy(outputs=outputs, labels=labels)
         total_loss += loss.item()
