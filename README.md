@@ -1,3 +1,5 @@
 # CS-GY 6953 Deep Learning Project
 
-More to come
+One of the main bottleneck of supervised learning is that it requires upfront human effort to label the data. Labeling the data is time consuming and often requires professional knowledge (e.g. labeling medical diagnosis data). There's vast amount of data on the internet nowadays, however most of them are unlabeled. Self-supervised learning is a way to learn useful embedding features with unlabeled data; it has become a very promising research field. ISD extends standard contrastive learning methods such as MoCo while borrows the idea of Momentum from it. ISD relaxes the binary distinction between the positive and negative pairs with soft similarity for negative images. ISD also utilizes the idea of Knowledge Distillation; while the teacher network and the student network are both trained from scratch, the teacher is updated with a momentum and therefore the teacher is a moving average of the student.
+
+In this project, we followed the method in ISD paper to build a backbone with MyResNet which we developed in the mini-project as the underlying architecture, and append a fully connected classifier layer to the backbone for a downstream classification task on the CIFAR-10 dataset. 
