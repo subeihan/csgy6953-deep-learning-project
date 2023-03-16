@@ -19,7 +19,7 @@ In this project, we followed the method in ISD paper to build a backbone with My
 mini-project as the underlying architecture, and append a fully connected classifier layer to the backbone for a 
 downstream classification task on the CIFAR-10 dataset. 
 
-link to mini-project: [link to mini project](https://github.com/subeihan/deep-learning-miniproject)
+Link to our mini-project: [link to mini project](https://github.com/subeihan/deep-learning-miniproject)
 
 ## Experiment Setups
 We have two experiment setups as described below.
